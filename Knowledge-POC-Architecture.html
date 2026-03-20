@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Knowledge Gap Detection POC — Architecture & Design</title>
+<style>
+  :root {
+    --green: #16c784;
+    --dark: #060f1a;
+    --surface: #091726;
+    --surface2: #0d2038;
+    --border: #163050;
+    --text: #ddeeff;
+    --muted: #6a8eaa;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--dark);
+    background-image: radial-gradient(ellipse at 15% 40%, rgba(0,160,110,0.07) 0%, transparent 55%),
+                      radial-gradient(ellipse at 85% 15%, rgba(0,90,180,0.06) 0%, transparent 55%);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .page { max-width: 1100px; margin: 0 auto; padding: 40px 24px 80px; }
+
+  .header { background: linear-gradient(135deg, #060f1a 0%, #0a1f35 45%, #071e20 100%); border: 1px solid rgba(22,199,132,0.35); border-radius: 12px; padding: 40px; margin-bottom: 40px; position: relative; overflow: hidden; }
+  .header::before { content: ''; position: absolute; top: -60px; right: -60px; width: 380px; height: 380px; background: radial-gradient(circle, rgba(22,199,132,0.07) 0%, transparent 65%); }
+  .header::after  { content: ''; position: absolute; bottom: -80px; left: 10%; width: 300px; height: 300px; background: radial-gradient(circle, rgba(0,100,200,0.05) 0%, transparent 65%); }
+  .header-tag { display: inline-block; background: rgba(22,199,132,0.12); border: 1px solid rgba(22,199,132,0.4); color: var(--green); font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; padding: 4px 12px; border-radius: 20px; margin-bottom: 16px; }
+  .header h1 { font-size: 28px; font-weight: 700; color: #fff; margin-bottom: 8px; }
+  .header .subtitle { color: var(--muted); font-size: 15px; margin-bottom: 20px; }
+  .header-meta { display: flex; gap: 24px; flex-wrap: wrap; }
+  .meta-item { display: flex; flex-direction: column; }
+  .meta-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+  .meta-value { font-size: 13px; color: var(--text); font-weight: 500; }
+
+  .section { margin-bottom: 40px; }
+  .section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+  .section-num { background: var(--green); color: #000; font-weight: 800; font-size: 12px; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 0 12px rgba(22,199,132,0.4); }
+  .section-header h2 { font-size: 18px; font-weight: 600; }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+  .card h3 { font-size: 14px; font-weight: 600; margin-bottom: 8px; color: var(--green); }
+  .card p { color: var(--muted); font-size: 13px; }
+  .card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+
+  .badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .badge-oob { background: rgba(22,199,132,0.15); color: #16c784; border: 1px solid rgba(22,199,132,0.4); }
+  .badge-custom { background: rgba(31,111,235,0.2); color: #58a6ff; border: 1px solid #1f6feb; }
+  .badge-pro { background: rgba(210,153,34,0.2); color: #e3b341; border: 1px solid #d29922; }
+  .badge-hybrid { background: rgba(139,92,246,0.2); color: #a78bfa; border: 1px solid #7c3aed; }
+
+  .flow-container { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 32px; margin-bottom: 24px; overflow-x: auto; }
+  .flow { display: flex; flex-direction: column; align-items: center; gap: 0; min-width: 600px; }
+  .flow-node { border-radius: 8px; padding: 12px 20px; font-size: 12px; font-weight: 500; text-align: center; min-width: 300px; max-width: 380px; }
+  .flow-node-oob { background: rgba(22,199,132,0.12); border: 1px solid rgba(22,199,132,0.4); color: #16c784; }
+  .flow-node-custom { background: rgba(31,111,235,0.15); border: 1px solid #1f6feb; color: #58a6ff; }
+  .flow-node-human { background: rgba(139,92,246,0.15); border: 1px solid #7c3aed; color: #a78bfa; }
+  .flow-node-end { background: rgba(22,199,132,0.12); border: 1px solid rgba(22,199,132,0.4); color: var(--green); border-radius: 20px; }
+  .flow-arrow { color: var(--muted); font-size: 18px; line-height: 1; margin: 4px 0; }
+  .flow-label { font-size: 10px; color: var(--muted); text-align: center; font-style: italic; margin: 2px 0; }
+  .flow-branch { display: flex; gap: 20px; width: 100%; justify-content: center; align-items: flex-start; margin: 4px 0; }
+  .flow-branch-col { display: flex; flex-direction: column; align-items: center; gap: 0; flex: 1; max-width: 260px; }
+  .flow-branch-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 2px 10px; border-radius: 10px; margin-bottom: 4px; }
+  .branch-yes { background: rgba(22,199,132,0.15); color: #16c784; }
+  .branch-no { background: rgba(218,54,51,0.2); color: #f85149; }
+  .branch-loop { background: rgba(210,153,34,0.2); color: #e3b341; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { background: var(--surface2); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+  td { padding: 10px 14px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 20px; }
+  .mono { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; color: #60b0f0; }
+
+  .task-phase { margin-bottom: 24px; }
+  .task-phase-header { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .task { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid rgba(22,48,80,0.6); align-items: flex-start; }
+  .task:last-child { border-bottom: none; }
+  .task-id { background: var(--surface2); color: var(--muted); font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px; white-space: nowrap; font-family: monospace; flex-shrink: 0; margin-top: 2px; }
+  .task-body { flex: 1; }
+  .task-title { font-weight: 500; font-size: 13px; margin-bottom: 3px; }
+  .task-desc { color: var(--muted); font-size: 12px; }
+
+  .scene { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; margin-bottom: 10px; display: flex; gap: 16px; align-items: flex-start; }
+  .scene-num { background: var(--green); color: #000; font-weight: 800; font-size: 12px; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 0 10px rgba(22,199,132,0.35); }
+  .scene-content h4 { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .scene-content p { color: var(--muted); font-size: 12px; }
+  .nav-path { margin-top: 6px; font-family: monospace; font-size: 11px; color: #60b0f0; background: rgba(6,15,26,0.8); padding: 4px 8px; border-radius: 4px; display: inline-block; border: 1px solid var(--border); }
+
+  .code-block { background: #040d18; border: 1px solid var(--border); border-radius: 6px; padding: 16px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; color: var(--text); overflow-x: auto; line-height: 1.7; margin: 12px 0; white-space: pre; }
+
+  .alert { border-radius: 6px; padding: 14px 16px; margin-bottom: 16px; font-size: 13px; }
+  .alert-info { background: rgba(31,111,235,0.1); border: 1px solid rgba(31,111,235,0.4); color: #80b8f0; }
+  .alert-warn { background: rgba(210,153,34,0.1); border: 1px solid #d29922; color: #e3b341; }
+  .alert-success { background: rgba(22,199,132,0.08); border: 1px solid rgba(22,199,132,0.35); color: var(--green); }
+
+  .toc { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 40px; }
+  .toc h3 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+  .toc ol { padding-left: 20px; }
+  .toc li { padding: 3px 0; color: var(--green); font-size: 13px; }
+  .toc li a { color: var(--green); text-decoration: none; }
+  .toc li a:hover { text-decoration: underline; }
+
+  .legend { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 16px; font-size: 12px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 2px; }
+
+  .footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--border); text-align: center; color: var(--muted); font-size: 12px; }
+
+  /* Agentic Architecture — Hub Diagram */
+  .agentic-layout { display: grid; grid-template-columns: 1fr 340px; gap: 24px; margin-bottom: 28px; align-items: start; }
+  .hub-wrap { position: relative; height: 500px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .hub-wrap::before { content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 300px; height: 300px; border-radius: 50%; background: radial-gradient(circle, rgba(22,199,132,0.04) 0%, transparent 70%); pointer-events: none; }
+  .hub-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .hub-node { position: absolute; transform: translate(-50%,-50%); display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; cursor: default; }
+  .hub-circle { border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+  /* Center: green = the agentic flow itself */
+  .hub-center .hub-circle { width: 80px; height: 80px; background: linear-gradient(135deg, #071c30, #04201a); border: 2px solid rgba(22,199,132,0.5); box-shadow: 0 0 20px rgba(22,199,132,0.18), inset 0 0 16px rgba(22,199,132,0.05); }
+  .hub-sat .hub-circle  { width: 50px; height: 50px; background: var(--surface2); border: 1.5px solid var(--border); }
+  /* Knowledge Demand Insights = skill/tool → yellow */
+  .hub-sat.sat-oob .hub-circle  { border-color: rgba(227,179,65,0.7); background: rgba(227,179,65,0.08); }
+  /* Drafting Agent, Revision Agent, PO Gate, KM Gate = agents → purple */
+  .hub-sat.sat-ai .hub-circle   { border-color: rgba(167,139,250,0.65); background: rgba(167,139,250,0.08); }
+  .hub-sat.sat-rev .hub-circle  { border-color: rgba(167,139,250,0.6);  background: rgba(167,139,250,0.07); }
+  .hub-sat.sat-po .hub-circle   { border-color: rgba(167,139,250,0.65); background: rgba(167,139,250,0.08); }
+  .hub-sat.sat-km .hub-circle   { border-color: rgba(167,139,250,0.6);  background: rgba(167,139,250,0.07); }
+  .hub-label { font-size: 11px; font-weight: 600; color: var(--text); white-space: nowrap; }
+  .hub-sublabel { font-size: 9px; color: var(--muted); white-space: nowrap; }
+  .hub-center .hub-label { font-size: 13px; font-weight: 700; color: var(--green); }
+  .hub-center .hub-sublabel { font-size: 10px; color: var(--muted); }
+  .hub-tools { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; margin-top: 3px; max-width: 130px; }
+  .hub-tool-tag { font-size: 8.5px; background: rgba(255,255,255,0.03); color: var(--muted); padding: 1px 5px; border-radius: 3px; border: 1px solid var(--border); white-space: nowrap; }
+  /* Orchestration engine label = blue */
+  .orch-label { position: absolute; font-size: 9px; font-weight: 600; color: rgba(88,166,255,0.45); text-transform: uppercase; letter-spacing: 1.5px; transform: translateX(-50%); }
+
+  .ann-panel { display: flex; flex-direction: column; gap: 10px; }
+  .ann-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; display: flex; gap: 12px; align-items: flex-start; }
+  .ann-tag { font-size: 9px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; padding: 3px 8px; border-radius: 4px; flex-shrink: 0; margin-top: 2px; }
+  .ann-why  { background: rgba(22,199,132,0.15); color: var(--green); border: 1px solid rgba(22,199,132,0.3); }
+  .ann-how  { background: rgba(31,111,235,0.15); color: #58a6ff; border: 1px solid rgba(31,111,235,0.3); }
+  .ann-who  { background: rgba(139,92,246,0.15); color: #a78bfa; border: 1px solid rgba(139,92,246,0.3); }
+  .ann-what { background: rgba(210,153,34,0.15); color: #e3b341; border: 1px solid rgba(210,153,34,0.3); }
+  .ann-body h4 { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+  .ann-body p  { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+  .tool-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .tool-group { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid rgba(167,139,250,0.5); border-radius: 8px; padding: 16px; }
+  .tg-header { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  /* All four groups are agents → purple */
+  .tg-perceive .tg-header  { color: #a78bfa; }
+  .tg-generate .tg-header  { color: #a78bfa; }
+  .tg-act .tg-header       { color: #a78bfa; }
+  .tg-coordinate .tg-header { color: #a78bfa; }
+  .tool-pill { display: flex; align-items: baseline; gap: 8px; padding: 5px 0; border-bottom: 1px solid rgba(22,48,80,0.6); }
+  .tool-pill:last-child { border-bottom: none; }
+  .tool-pill-id { font-family: monospace; font-size: 10px; color: var(--muted); background: var(--surface2); padding: 1px 5px; border-radius: 3px; flex-shrink: 0; }
+  .tool-pill-name { font-size: 12px; font-weight: 500; color: var(--text); }
+  .tool-pill-mech { font-size: 11px; color: var(--muted); margin-left: auto; font-family: monospace; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-tag">POC Architecture Document</div>
+    <h1>Knowledge Gap Detection &amp; Agentic Drafting</h1>
+    <div class="subtitle">ServiceNow Knowledge Management — Agentic Orchestration Layer</div>
+    <div class="header-meta">
+      <div class="meta-item"><span class="meta-label">Customer</span><span class="meta-value">American Express — Digital Workplace</span></div>
+      <div class="meta-item"><span class="meta-label">KM Owner</span><span class="meta-value">Becki Love</span></div>
+      <div class="meta-item"><span class="meta-label">Instance</span><span class="meta-value">demoalectriallwfzu138098</span></div>
+      <div class="meta-item"><span class="meta-label">Release Required</span><span class="meta-value">Zurich Patch 4+ / Pro+</span></div>
+      <div class="meta-item"><span class="meta-label">Build Type</span><span class="meta-value">POC</span></div>
+      <div class="meta-item"><span class="meta-label">Date</span><span class="meta-value">2026-03-19</span></div>
+    </div>
+  </div>
+
+  <!-- TOC -->
+  <div class="toc">
+    <h3>Contents</h3>
+    <ol>
+      <li><a href="#solution">Solution Overview</a></li>
+      <li><a href="#oob-vs-custom">OOB vs. Custom — Verified Breakdown</a></li>
+      <li><a href="#agentic">Agentic Architecture</a></li>
+      <li><a href="#flow-architecture">Flow Architecture</a></li>
+      <li><a href="#data-model">Data Model</a></li>
+      <li><a href="#routing">Product Routing Architecture</a></li>
+      <li><a href="#flow-design">Flow Designer Design</a></li>
+      <li><a href="#tasks">Build Task Manifest</a></li>
+      <li><a href="#demo">Demo Scenario &amp; Clickthrough</a></li>
+    </ol>
+  </div>
+
+
+  <!-- 1 -->
+  <div class="section" id="solution">
+    <div class="section-header"><div class="section-num">1</div><h2>Solution Overview</h2></div>
+    <div class="alert alert-success">
+      <strong>Design Principle:</strong> The platform detects (OOB). The KM team decides which gaps to act on (human-in-the-loop). The flow orchestrates the drafting, routing, and review cycle (custom). Humans approve every publish.
+    </div>
+    <div class="card-grid-3">
+      <div class="card">
+        <h3>Detect (OOB)</h3>
+        <p>Knowledge Demand Insights — an OOB ML capability in core Knowledge Management — clusters resolved incidents with no linked KB article. Results surface in the Knowledge Center "Top 5 potential gaps" tab automatically.</p>
+      </div>
+      <div class="card">
+        <h3>Draft (OOB Skill)</h3>
+        <p>KM team selects a gap and clicks [Generate Article] in the Knowledge Center. The OOB Knowledge Drafting Skill (Now Assist) generates a structured KB article from the incident cluster's resolution notes, work notes, and short descriptions.</p>
+      </div>
+      <div class="card">
+        <h3>Route → Review → Publish (Custom Flow)</h3>
+        <p>Custom orchestration flow handles what OOB doesn't: route the draft to the correct product ownership team, manage the PO edit/re-draft cycle, escalate to KM for final review, and publish via the OOB article lifecycle.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2 -->
+  <div class="section" id="oob-vs-custom">
+    <div class="section-header"><div class="section-num">2</div><h2>OOB vs. Custom — Verified Breakdown</h2></div>
+    <div class="alert alert-info">
+      All OOB claims below are verified against official ServiceNow documentation (docs.servicenow.com) and community sources as of Zurich release.
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Layer</th><th>Type</th><th>Feature / Mechanism</th><th>What It Does &amp; What We Do With It</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Gap Detection</strong></td>
+            <td><span class="badge badge-oob">OOB</span></td>
+            <td>Knowledge Demand Insights<br><small>(core KM + Predictive Intelligence)</small></td>
+            <td>ML-based (K-means / DBScan) clustering of resolved incidents that have no linked KB article. Surfaces a <strong>"Top 5 potential gaps"</strong> tab in the Knowledge Center Insights section. Runs on a scheduled job: <span class="mono">[Knowledge Curation]: Generate Incident Clusters</span>. No custom detection logic required.</td>
+          </tr>
+          <tr>
+            <td><strong>Knowledge Center Workspace</strong></td>
+            <td><span class="badge badge-oob">OOB</span></td>
+            <td>Knowledge Center<br><small>(Zurich Patch 4+)</small></td>
+            <td>Unified workspace for Becki's KM team. Contains Insights tab (gap suggestions, potential duplicates), advanced editor, governance, and optimization tools. <strong>Requires Zurich Patch 4 or later.</strong></td>
+          </tr>
+          <tr>
+            <td><strong>Entry Point / Trigger</strong></td>
+            <td><span class="badge badge-hybrid">Hybrid</span></td>
+            <td>OOB Knowledge Center UI + Custom flow hook</td>
+            <td>KM team opens Knowledge Center → Insights → "Top 5 potential gaps." Clicks <strong>[Generate Article]</strong> on a selected gap. This OOB action is the trigger hook for our custom orchestration flow — which takes over and replaces the default single-step OOB draft with the full agentic routing and review workflow.</td>
+          </tr>
+          <tr>
+            <td><strong>Article Drafting</strong></td>
+            <td><span class="badge badge-oob">OOB</span> <span class="badge badge-pro">Pro+</span></td>
+            <td>Knowledge Drafting Skill (Now Assist, Zurich)</td>
+            <td>Generates a structured KB article draft from incident cluster content (short_desc, work_notes, close_notes). Invokable programmatically by Flow Designer. For the re-draft loop, the skill is <strong>cloned via Now Assist Skill Kit (NASK)</strong> and given a feedback-aware prompt — this clone is the one custom AI artifact.</td>
+          </tr>
+          <tr>
+            <td><strong>Article Lifecycle</strong></td>
+            <td><span class="badge badge-oob">OOB</span></td>
+            <td>kb_knowledge OOB workflows<br><small>(Draft → Review → Published → Retired)</small></td>
+            <td>Approval is <strong>workflow-driven</strong>, not field-based. OOB supports a <strong>single KB ownership group</strong> for approval — there is no multi-stage PO + KM review out of the box. We use the OOB lifecycle states but build the two-stage routing in Flow Designer.</td>
+          </tr>
+          <tr>
+            <td><strong>Multi-Stage Approval</strong><br><small>(PO review → KM review)</small></td>
+            <td><span class="badge badge-custom">Custom</span></td>
+            <td>Flow Designer</td>
+            <td>OOB article lifecycle routes to a single ownership group. The two-stage sequential review (product team first, KM team second) is entirely custom Flow Designer logic, listening for article state/approval changes.</td>
+          </tr>
+          <tr>
+            <td><strong>KCS Article Structure</strong></td>
+            <td><span class="badge badge-oob">OOB</span></td>
+            <td>KCS Capabilities Plugin<br><span class="mono">com.snc.knowledge_kcs_capabilities</span> (free)</td>
+            <td>Provides KCS roles, metadata fields, and article states aligned to KCS methodology. Article templates (symptom / cause / resolution / workaround) are part of core KM. Plugin is free — must be activated explicitly (not auto-activated by KM Advanced).</td>
+          </tr>
+          <tr>
+            <td><strong>Product → Team Routing</strong></td>
+            <td><span class="badge badge-oob">OOB</span></td>
+            <td><span class="mono">incident.cmdb_ci.assignment_group</span></td>
+            <td>The CMDB CI already has an <span class="mono">assignment_group</span> field. The flow reads it directly — one field, no lookup table, no custom logic. Demo CI is created with the correct group pre-set. Fallback: KM Team group if field is empty.</td>
+          </tr>
+          <tr>
+            <td><strong>Orchestration Flow</strong></td>
+            <td><span class="badge badge-custom">Custom</span></td>
+            <td>Flow Designer (main flow + subflows)</td>
+            <td>The glue connecting OOB gap detection → OOB drafting → custom routing → custom multi-stage review → OOB publish. Three flows: main orchestration, PO review cycle subflow, KM final review subflow.</td>
+          </tr>
+          <tr>
+            <td><strong>Re-Draft Loop</strong></td>
+            <td><span class="badge badge-custom">Custom</span></td>
+            <td>Flow Designer + cloned Knowledge Drafting Skill (NASK)</td>
+            <td>No OOB feedback-to-re-draft capability. On PO rejection: flow captures rejection work note, passes it to a cloned Knowledge Drafting Skill (feedback-aware prompt added via Now Assist Skill Kit) → generates revised draft → reassigns to PO → re-notifies. Loop guard at 3 iterations.</td>
+          </tr>
+          <tr>
+            <td><strong>Notifications</strong></td>
+            <td><span class="badge badge-custom">Custom</span></td>
+            <td>Email Notification records (4)</td>
+            <td>OOB KB lifecycle notifications exist but are not scoped to this workflow. Four custom notifications: PO initial review, PO re-draft ready, KM final review, KM rejection back to PO.</td>
+          </tr>
+          <tr>
+            <td><strong>Traceability</strong></td>
+            <td><span class="badge badge-oob">OOB</span></td>
+            <td><span class="mono">kb_knowledge.work_notes</span></td>
+            <td>Flow adds a work note when the article is created: "Generated from incident cluster: INC0001234, INC0001235…". Same demo talking point — zero custom schema. No custom fields on kb_knowledge.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 3 — AGENTIC ARCHITECTURE -->
+  <div class="section" id="agentic">
+    <div class="section-header"><div class="section-num">3</div><h2>Agentic Architecture</h2></div>
+    <div class="alert alert-info">
+      <strong>What makes this agentic?</strong> Traditional KB automation runs a fixed script. This workflow uses autonomous agents that perceive state (article status, work note content, CMDB data), make decisions (route, draft, revise, escalate), and act (invoke AI tools, assign records, send notifications) — with human approval gates at each critical decision. The platform detects. The orchestration agent decides. Humans approve.
+    </div>
+
+    <!-- Hub Diagram + Annotations -->
+    <div class="agentic-layout">
+
+      <!-- LEFT: Hub Diagram -->
+      <div class="hub-wrap">
+        <svg class="hub-svg" viewBox="0 0 640 500" preserveAspectRatio="none">
+          <defs>
+            <marker id="arr" markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto">
+              <path d="M0,0 L5,2.5 L0,5 Z" fill="rgba(100,140,180,0.5)"/>
+            </marker>
+          </defs>
+          <!-- Orchestration Agent background ring — blue (it is the background reasoning engine) -->
+          <ellipse cx="320" cy="250" rx="152" ry="150" fill="none" stroke="rgba(88,166,255,0.18)" stroke-width="1.2" stroke-dasharray="7,5"/>
+
+          <!-- Spoke lines: short, from center area to halfway toward each satellite -->
+          <!-- Lines stop well before satellite circles to avoid overlapping labels -->
+          <line x1="320" y1="195" x2="320" y2="135"  stroke="rgba(100,140,180,0.35)" stroke-width="1.2" stroke-dasharray="4,4" marker-end="url(#arr)"/>
+          <line x1="364" y1="222" x2="494" y2="153"  stroke="rgba(100,140,180,0.3)"  stroke-width="1.2" stroke-dasharray="4,4" marker-end="url(#arr)"/>
+          <line x1="363" y1="279" x2="495" y2="350"  stroke="rgba(100,140,180,0.3)"  stroke-width="1.2" stroke-dasharray="4,4" marker-end="url(#arr)"/>
+          <line x1="277" y1="279" x2="145" y2="350"  stroke="rgba(100,140,180,0.3)"  stroke-width="1.2" stroke-dasharray="4,4" marker-end="url(#arr)"/>
+          <line x1="276" y1="222" x2="146" y2="153"  stroke="rgba(100,140,180,0.3)"  stroke-width="1.2" stroke-dasharray="4,4" marker-end="url(#arr)"/>
+        </svg>
+
+        <!-- CENTER: Agentic Workflow (the heart) -->
+        <div class="hub-node hub-center" style="left:50%; top:50%;">
+          <div class="hub-circle">
+            <svg width="36" height="44" viewBox="0 0 36 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="2" y="2" width="28" height="40" rx="3" fill="rgba(22,199,132,0.07)" stroke="rgba(22,199,132,0.55)" stroke-width="1.5"/>
+              <path d="M22 2 L30 2 L30 10 L22 10 Z" fill="rgba(22,199,132,0.12)" stroke="rgba(22,199,132,0.45)" stroke-width="1"/>
+              <path d="M22 2 L22 10 L30 10" stroke="rgba(22,199,132,0.45)" stroke-width="1" fill="none"/>
+              <rect x="6" y="16" width="5" height="5" rx="1" stroke="rgba(22,199,132,0.7)" stroke-width="1.2" fill="rgba(22,199,132,0.1)"/>
+              <path d="M7 18.5 L8.5 20 L11 17" stroke="rgba(22,199,132,0.85)" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+              <line x1="14" y1="18.5" x2="26" y2="18.5" stroke="rgba(22,199,132,0.3)" stroke-width="1.2" stroke-linecap="round"/>
+              <rect x="6" y="24" width="5" height="5" rx="1" stroke="rgba(22,199,132,0.7)" stroke-width="1.2" fill="rgba(22,199,132,0.1)"/>
+              <path d="M7 26.5 L8.5 28 L11 25" stroke="rgba(22,199,132,0.85)" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+              <line x1="14" y1="26.5" x2="26" y2="26.5" stroke="rgba(22,199,132,0.3)" stroke-width="1.2" stroke-linecap="round"/>
+              <rect x="6" y="32" width="5" height="5" rx="1" stroke="rgba(22,199,132,0.35)" stroke-width="1.2"/>
+              <line x1="14" y1="34.5" x2="22" y2="34.5" stroke="rgba(22,199,132,0.2)" stroke-width="1.2" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div class="hub-label">Agentic Workflow</div>
+          <div class="hub-sublabel">Gap → Draft → Review → Published</div>
+        </div>
+
+        <!-- TOP: Gap Detection (input signal) -->
+        <div class="hub-node hub-sat sat-oob" style="left:50%; top:18%;">
+          <div class="hub-circle">🔍</div>
+          <div class="hub-label">Knowledge Demand Insights</div>
+          <div class="hub-sublabel">OOB gap signal</div>
+          <div class="hub-tools">
+            <span class="hub-tool-tag">ML clustering</span>
+            <span class="hub-tool-tag">incident analysis</span>
+          </div>
+        </div>
+
+        <!-- TOP-RIGHT: Drafting Agent -->
+        <div class="hub-node hub-sat sat-ai" style="left:84%; top:26%;">
+          <div class="hub-circle">✍️</div>
+          <div class="hub-label">Drafting Agent</div>
+          <div class="hub-sublabel">OOB Now Assist</div>
+          <div class="hub-tools">
+            <span class="hub-tool-tag">read incidents</span>
+            <span class="hub-tool-tag">Now Assist Skill</span>
+            <span class="hub-tool-tag">create article</span>
+          </div>
+        </div>
+
+        <!-- BOTTOM-RIGHT: Revision Agent -->
+        <div class="hub-node hub-sat sat-rev" style="left:84%; top:75%;">
+          <div class="hub-circle">🔄</div>
+          <div class="hub-label">Revision Agent</div>
+          <div class="hub-sublabel">Cloned Skill (NASK)</div>
+          <div class="hub-tools">
+            <span class="hub-tool-tag">read work notes</span>
+            <span class="hub-tool-tag">cloned NASK skill</span>
+            <span class="hub-tool-tag">update article</span>
+          </div>
+        </div>
+
+        <!-- BOTTOM-LEFT: PO Gate -->
+        <div class="hub-node hub-sat sat-po" style="left:16%; top:75%;">
+          <div class="hub-circle">👤</div>
+          <div class="hub-label">PO Review Gate</div>
+          <div class="hub-sublabel">Human · Product Owner</div>
+          <div class="hub-tools">
+            <span class="hub-tool-tag">edit article</span>
+            <span class="hub-tool-tag">approve</span>
+            <span class="hub-tool-tag">reject + feedback</span>
+          </div>
+        </div>
+
+        <!-- TOP-LEFT: KM Gate -->
+        <div class="hub-node hub-sat sat-km" style="left:16%; top:26%;">
+          <div class="hub-circle">👥</div>
+          <div class="hub-label">KM Review Gate</div>
+          <div class="hub-sublabel">Human · Becki Love's Team</div>
+          <div class="hub-tools">
+            <span class="hub-tool-tag">style review</span>
+            <span class="hub-tool-tag">approve + publish</span>
+            <span class="hub-tool-tag">reject to PO</span>
+          </div>
+        </div>
+
+        <!-- ORCHESTRATION AGENT label — bottom of dashed ring, no overlap -->
+        <div class="orch-label" style="left:50%; bottom:18px;">ORCHESTRATION AGENT</div>
+      </div>
+
+      <!-- RIGHT: WHY / HOW / WHO / WHAT annotations -->
+      <div class="ann-panel">
+        <div class="ann-card">
+          <span class="ann-tag ann-why">WHY</span>
+          <div class="ann-body">
+            <h4>Agentic Workflow</h4>
+            <p>The business problem being solved: knowledge gaps accumulate silently. This workflow makes gap resolution autonomous — detect, draft, route, review, publish.</p>
+          </div>
+        </div>
+        <div class="ann-card">
+          <span class="ann-tag ann-how">HOW</span>
+          <div class="ann-body">
+            <h4>Orchestration Agent</h4>
+            <p>A background reasoning engine that coordinates the workflow — dispatching agents, managing state, routing between review gates, and handling re-draft retries. It runs silently; the agents and workflow are the story.</p>
+          </div>
+        </div>
+        <div class="ann-card">
+          <span class="ann-tag ann-who">WHO</span>
+          <div class="ann-body">
+            <h4>Specialist Agents</h4>
+            <p>Each agent owns a step: the Drafting Agent generates the article, the Revision Agent refines it with PO feedback, and the human review gates (PO, KM) approve or redirect.</p>
+          </div>
+        </div>
+        <div class="ann-card">
+          <span class="ann-tag ann-what">WHAT</span>
+          <div class="ann-body">
+            <h4>Agent Tools</h4>
+            <p>Each specialist agent has its own tools — the capabilities it needs to perform its task. Tools are not shared; they belong to the agent that uses them.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Hub diagram legend -->
+    <div class="legend" style="margin-bottom:20px;">
+      <div class="legend-item"><div class="legend-dot" style="background:#16c784; border-radius:50%;"></div><span style="color:#16c784">Agentic Flow</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#a78bfa; border-radius:50%;"></div><span style="color:#a78bfa">Agent</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#e3b341; border-radius:50%;"></div><span style="color:#e3b341">Skill / Tool</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#58a6ff; border-radius:50%;"></div><span style="color:#58a6ff">Orchestration Engine</span></div>
+    </div>
+
+    <!-- Tool Catalog -->
+    <div style="font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:var(--muted); margin-bottom:10px;">Agent Tool Inventory</div>
+    <div class="tool-groups">
+      <div class="tool-group tg-perceive">
+        <div class="tg-header">✍️ Drafting Agent</div>
+        <div class="tool-pill"><span class="tool-pill-id">T-01</span><span class="tool-pill-name">Read Incident Cluster</span><span class="tool-pill-mech">incident query</span></div>
+        <div class="tool-pill"><span class="tool-pill-id">T-02</span><span class="tool-pill-name">Invoke Now Assist Skill</span><span class="tool-pill-mech">OOB Knowledge Drafting Skill</span></div>
+        <div class="tool-pill"><span class="tool-pill-id">T-03</span><span class="tool-pill-name">Create KB Article</span><span class="tool-pill-mech">insert kb_knowledge (Draft)</span></div>
+        <div class="tool-pill"><span class="tool-pill-id">T-04</span><span class="tool-pill-name">Add Traceability Note</span><span class="tool-pill-mech">work_notes · INC cluster</span></div>
+        <div class="tool-pill"><span class="tool-pill-id">T-05</span><span class="tool-pill-name">Read CMDB CI Routing</span><span class="tool-pill-mech">incident.cmdb_ci.assignment_group</span></div>
+      </div>
+      <div class="tool-group tg-generate">
+        <div class="tg-header">🔄 Revision Agent</div>
+        <div class="tool-pill"><span class="tool-pill-id">T-06</span><span class="tool-pill-name">Read Rejection Feedback</span><span class="tool-pill-mech">work_notes (last PO entry)</span></div>
+        <div class="tool-pill"><span class="tool-pill-id">T-07</span><span class="tool-pill-name">Invoke Cloned Skill (NASK)</span><span class="tool-pill-mech">feedback-aware prompt</span></div>
+        <div class="tool-pill"><span class="tool-pill-id">T-08</span><span class="tool-pill-name">Update Article Content</span><span class="tool-pill-mech">kb_knowledge (same sys_id)</span></div>
+      </div>
+      <div class="tool-group tg-act">
+        <div class="tg-header">👤 PO Review Gate</div>
+        <div class="tool-pill"><span class="tool-pill-id">T-09</span><span class="tool-pill-name">Assign to Ownership Group</span><span class="tool-pill-mech">kb_knowledge.assignment_group</span></div>
+        <div class="tool-pill"><span class="tool-pill-id">T-10</span><span class="tool-pill-name">Notify PO Team</span><span class="tool-pill-mech">N1 · N2 email notifications</span></div>
+        <div class="tool-pill"><span class="tool-pill-id">T-11</span><span class="tool-pill-name">Wait for PO Decision</span><span class="tool-pill-mech">Flow Wait · workflow_state</span></div>
+      </div>
+      <div class="tool-group tg-coordinate">
+        <div class="tg-header">👥 KM Review Gate</div>
+        <div class="tool-pill"><span class="tool-pill-id">T-12</span><span class="tool-pill-name">Assign to KM Team</span><span class="tool-pill-mech">kb_knowledge.assignment_group</span></div>
+        <div class="tool-pill"><span class="tool-pill-id">T-13</span><span class="tool-pill-name">Notify KM Team</span><span class="tool-pill-mech">N3 · N4 · N5 notifications</span></div>
+        <div class="tool-pill"><span class="tool-pill-id">T-14</span><span class="tool-pill-name">Wait for KM Decision</span><span class="tool-pill-mech">Flow Wait · workflow_state</span></div>
+        <div class="tool-pill"><span class="tool-pill-id">T-15</span><span class="tool-pill-name">Publish Article</span><span class="tool-pill-mech">workflow_state → Published</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4 -->
+  <div class="section" id="flow-architecture">
+    <div class="section-header"><div class="section-num">4</div><h2>Flow Architecture</h2></div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#3fb950;"></div><span style="color:#3fb950">OOB Feature</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#58a6ff;"></div><span style="color:#58a6ff">Custom Flow Logic</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#a78bfa;"></div><span style="color:#a78bfa">Human Actor</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#e3b341;"></div><span style="color:#e3b341">Decision Point</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--green);"></div><span style="color:var(--green)">Terminal State</span></div>
+    </div>
+    <div class="flow-container">
+      <div class="flow">
+
+        <div class="flow-node flow-node-oob">🔍 OOB: Knowledge Demand Insights<br><small>ML clusters resolved incidents with no linked KB article → "Top 5 potential gaps"</small></div>
+        <div class="flow-label">Scheduled job runs automatically — powered by Predictive Intelligence (OOB, no custom config)</div>
+        <div class="flow-arrow">↓</div>
+
+        <div class="flow-node flow-node-human">👤 KM Team opens Knowledge Center → Insights tab<br><small>"Top 5 potential gaps" displayed:<br>• Webex VPN Connectivity (4 incidents) [Generate Article]<br>• MFA Reset Flow (7 incidents) [Generate Article]</small></div>
+        <div class="flow-label">Human-in-the-loop — KM team decides which gaps to act on (OOB Knowledge Center UI)</div>
+        <div class="flow-arrow">↓</div>
+
+        <div class="flow-node flow-node-custom">🎯 [Generate Article] clicked → Custom Orchestration Flow Fires<br><small>Hooks onto OOB action — replaces default single-step draft with full agentic workflow</small></div>
+        <div class="flow-label">Custom trigger — human-initiated from OOB Knowledge Center</div>
+        <div class="flow-arrow">↓</div>
+
+        <div class="flow-node flow-node-oob">🤖 OOB: Knowledge Drafting Skill (Now Assist)<br><small>Sources: incident cluster short_desc + work_notes + close_notes → structured KB draft</small></div>
+        <div class="flow-label">OOB Zurich Pro+ — invoked programmatically by Flow Designer</div>
+        <div class="flow-arrow">↓</div>
+
+        <div class="flow-node flow-node-custom">📋 Article created in Draft state<br><small>Work note added: "Generated from incident cluster: INC…" — traceability via OOB field</small></div>
+        <div class="flow-arrow">↓</div>
+
+        <div class="flow-node flow-node-custom">🔍 Tool T-05: Read CMDB CI Routing<br><small>incident.cmdb_ci.assignment_group → Ownership Group<br>Fallback: KM Team group if field is empty</small></div>
+        <div class="flow-arrow">↓</div>
+
+        <div class="flow-node flow-node-custom">📬 Assign to Ownership Group + Notify PO Team</div>
+        <div class="flow-arrow">↓</div>
+
+        <div class="flow-node flow-node-human">👤 Product Owner Team Reviews Draft<br><small>Reviews article in ServiceNow — can edit content, approve, or reject</small></div>
+        <div class="flow-arrow">↓</div>
+
+        <div class="flow-node flow-node-custom" style="min-width:300px;">⚖️ PO Decision?</div>
+        <div class="flow-arrow">↓</div>
+
+        <div class="flow-branch">
+          <div class="flow-branch-col">
+            <div class="flow-branch-label branch-loop">↺ Rejected — Needs Rework</div>
+            <div class="flow-node flow-node-custom" style="min-width:220px; font-size:11px;">📝 Capture PO rejection work note</div>
+            <div class="flow-arrow">↓</div>
+            <div class="flow-node flow-node-oob" style="min-width:220px; font-size:11px;">🤖 Cloned Drafting Skill (NASK)<br><small>Original incident + PO feedback context → revised draft</small></div>
+            <div class="flow-arrow">↓</div>
+            <div class="flow-node flow-node-custom" style="min-width:220px; font-size:11px;">📬 Reassign to PO + Notify "Revision N ready"</div>
+            <div class="flow-label">↺ Loop back to PO Review (max 3 iterations)</div>
+          </div>
+          <div class="flow-branch-col">
+            <div class="flow-branch-label branch-no">✗ Rejected — Not Needed</div>
+            <div class="flow-node flow-node-end" style="min-width:180px; font-size:11px;">Gap closed<br>Not applicable</div>
+          </div>
+          <div class="flow-branch-col">
+            <div class="flow-branch-label branch-yes">✓ PO Approved</div>
+            <div class="flow-node flow-node-custom" style="min-width:220px; font-size:11px;">📬 Route to KM Team + Notify</div>
+            <div class="flow-arrow">↓</div>
+            <div class="flow-node flow-node-human" style="min-width:220px; font-size:11px;">👤 KM Team Final Review<br><small>Quality check against style guide</small></div>
+            <div class="flow-arrow">↓</div>
+            <div class="flow-node flow-node-custom" style="min-width:220px; font-size:11px; padding:10px 16px;">⚖️ KM Decision?</div>
+            <div class="flow-branch" style="margin-top:4px;">
+              <div class="flow-branch-col">
+                <div class="flow-branch-label branch-no" style="font-size:9px;">✗ Rejected</div>
+                <div class="flow-node flow-node-custom" style="min-width:140px; font-size:10px;">Back to PO (Draft)<br>KM feedback attached</div>
+              </div>
+              <div class="flow-branch-col">
+                <div class="flow-branch-label branch-yes" style="font-size:9px;">✓ Approved</div>
+                <div class="flow-node flow-node-oob" style="min-width:140px; font-size:10px;">OOB: Article Published<br>Lifecycle → Published</div>
+                <div class="flow-arrow">↓</div>
+                <div class="flow-node flow-node-end" style="min-width:140px; font-size:10px;">✅ Gap Resolved<br>Article Live in KB</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- 5 -->
+  <div class="section" id="data-model">
+    <div class="section-header"><div class="section-num">5</div><h2>Data Model</h2></div>
+
+    <div class="alert alert-success">
+      <strong>Zero custom schema.</strong> No custom fields on <span class="mono">kb_knowledge</span>. No custom tables. This build uses only OOB fields.
+    </div>
+
+    <h3 style="font-size:14px; margin-bottom:12px; color:var(--text);">Traceability — Work Note (not a custom field)</h3>
+    <div class="card">
+      <p>When the flow creates the article, it immediately adds a work note:</p>
+      <div class="code-block" style="margin-top:10px;">"Article generated by Knowledge Gap Detection flow.
+Source incident cluster: INC0001234, INC0001235, INC0001236, INC0001237"</div>
+      <p style="margin-top:8px;">This gives the demo traceability talking point — "every AI-drafted article is traceable to the incidents that triggered it" — with no schema changes.</p>
+    </div>
+
+    <h3 style="font-size:14px; margin-bottom:12px; margin-top:24px; color:var(--text);">OOB Fields Used by the Flow</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Table</th><th>Field</th><th>How We Use It</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><span class="mono">incident</span></td>
+            <td><span class="mono">short_description, work_notes, close_notes, cmdb_ci</span></td>
+            <td>Source material for Knowledge Demand Insights clustering and for the Knowledge Drafting Skill.</td>
+          </tr>
+          <tr>
+            <td><span class="mono">cmdb_ci</span></td>
+            <td><span class="mono">assignment_group</span></td>
+            <td><strong>The routing key.</strong> <span class="mono">incident.cmdb_ci.assignment_group</span> determines which team receives the draft article for review. Set on the demo CI — no lookup table needed.</td>
+          </tr>
+          <tr>
+            <td><span class="mono">kb_knowledge</span></td>
+            <td><span class="mono">workflow_state, assignment_group, kb_knowledge_base, work_notes</span></td>
+            <td><span class="mono">workflow_state</span> transitions drive the OOB lifecycle. <span class="mono">assignment_group</span> routes between PO team and KM team. <span class="mono">work_notes</span> carries traceability and rejection feedback.</td>
+          </tr>
+          <tr>
+            <td><span class="mono">sys_user_group</span></td>
+            <td><span class="mono">name, sys_id</span></td>
+            <td>Product ownership group (from cmdb_ci) for PO review, and KM Team group (Becki Love's team) for final review and fallback routing.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 6 -->
+  <div class="section" id="routing">
+    <div class="section-header"><div class="section-num">6</div><h2>Routing Architecture</h2></div>
+    <div class="alert alert-success">
+      <strong>Zero custom logic.</strong> Routing uses a single OOB field already on the CMDB CI. No lookup table, no custom code, no import.
+    </div>
+
+    <h3 style="font-size:14px; margin:16px 0 12px; color:var(--text);">Routing Logic</h3>
+    <div class="card">
+      <div class="code-block">// One line — read the assignment group directly from the CI
+target_group = incident.cmdb_ci.assignment_group
+
+// Fallback if CI is empty or has no assignment group
+IF target_group is empty:
+    target_group = KM_TEAM_GROUP
+
+// Assign article and notify
+kb_article.assignment_group = target_group
+SEND notification N1 to target_group</div>
+    </div>
+
+    <div class="card-grid">
+      <div class="card">
+        <h3>For the POC Demo</h3>
+        <p>We create the demo Webex CI with <span class="mono">assignment_group</span> set to the product ownership group. Since we control the demo data, routing is guaranteed correct with no additional logic.</p>
+      </div>
+      <div class="card">
+        <h3>Post-POC Path</h3>
+        <p>If live CMDB data is inconsistent (CMDB assignment group = support team, not KB team), migrate to a reference table loaded from the SSO Product KB Mapping spreadsheet (11,163 rows, 1,676 products). No flow changes needed — just swap the lookup source.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7 -->
+  <div class="section" id="flow-design">
+    <div class="section-header"><div class="section-num">7</div><h2>Flow Designer Design</h2></div>
+    <div class="card-grid">
+      <div class="card">
+        <h3>Main Flow: Knowledge Gap Orchestration</h3>
+        <p><strong>Trigger:</strong> KM team clicks [Generate Article] from the "Top 5 potential gaps" tab in Knowledge Center Insights (Knowledge Demand Insights). Custom flow hooks onto this OOB action.</p>
+        <p style="margin-top:8px;"><strong>Actions:</strong> Invoke OOB Knowledge Drafting Skill → create article (set custom fields) → routing lookup → assign + notify → call PO Review Subflow</p>
+      </div>
+      <div class="card">
+        <h3>Subflow: PO Review Cycle</h3>
+        <p><strong>Input:</strong> <span class="mono">kb_knowledge.sys_id</span>, gap incident cluster, ownership_group.sys_id</p>
+        <p style="margin-top:8px;"><strong>Logic:</strong> Wait for article state change → branch Approved / Rejected-Rework / Rejected-Not-Needed → on rework: clone Drafting Skill with feedback context → loop → 3-iteration loop guard</p>
+      </div>
+    </div>
+    <div class="card" style="margin-top:0;">
+      <h3>Subflow: KM Final Review</h3>
+      <p><strong>Input:</strong> <span class="mono">kb_knowledge.sys_id</span> (PO-approved article)<br>
+      <strong>Logic:</strong> Reassign to KM Team group → notify → wait for KM decision → Approved → OOB publish (workflow state transition) | Rejected → reassign to original ownership group + work note with KM feedback → notify PO → re-enter PO Review Subflow</p>
+    </div>
+
+    <h3 style="font-size:14px; margin:20px 0 12px; color:var(--text);">Re-Draft Loop — How It Works</h3>
+    <div class="card">
+      <div class="code-block">// When PO rejects with "needs rework":
+
+1. Flow reads last work note added by PO (rejection reason)
+2. Invokes CLONED Knowledge Drafting Skill (via Now Assist Skill Kit):
+   - Clone adds feedback-aware prompt: "You are revising a KB article.
+     Original incident context: [short_desc, work_notes, close_notes]
+     PO Feedback requiring changes: [rejection work note text]
+     Revise the article to address this feedback."
+3. Cloned skill returns revised draft
+4. Article content updated on existing kb_knowledge record
+   (same sys_id — no new record created)
+5. article.workflow_state reset to "draft" (OOB transition)
+6. article.assignment_group = original ownership group
+7. Notification N2 sent: "Revision [N] ready for review"
+
+Loop guard: after 3 iterations without PO approval →
+  notify KM Team: "Article stuck in review — manual intervention needed"</div>
+    </div>
+  </div>
+
+  <!-- 8 -->
+  <div class="section" id="tasks">
+    <div class="section-header"><div class="section-num">8</div><h2>Build Task Manifest</h2></div>
+
+    <div class="task-phase">
+      <div class="task-phase-header">Phase 0 — Pre-Flight &amp; Instance Scan</div>
+      <div class="task"><div class="task-id">T001</div><div class="task-body"><div class="task-title">Instance Scan</div><div class="task-desc">Verify: Knowledge Center installed at Zurich P4+, "Top 5 potential gaps" tab visible in Insights, Predictive Intelligence plugin active, Knowledge Drafting Skill active with KB scope, KCS plugin (<span class="mono">com.snc.knowledge_kcs_capabilities</span>), existing knowledge bases, KM Team group existence. Flag any blockers before building.</div></div></div>
+    </div>
+
+    <div class="task-phase">
+      <div class="task-phase-header">Phase 1 — Data Foundation</div>
+      <div class="task"><div class="task-id">T002</div><div class="task-body"><div class="task-title">Create Demo Personas</div><div class="task-desc">Create <span class="mono">demo.po.user</span> (member of product ownership group) and <span class="mono">demo.km.user</span> (member of KM Team group). Assign KB reviewer roles.</div></div></div>
+      <div class="task"><div class="task-id">T003</div><div class="task-body"><div class="task-title">Create Demo CMDB CI with Assignment Group</div><div class="task-desc">Create or verify a CMDB CI for the demo product (e.g., "Webex") with <span class="mono">assignment_group</span> set to the product ownership group. This is the routing key — the flow reads <span class="mono">incident.cmdb_ci.assignment_group</span> directly.</div></div></div>
+      <div class="task"><div class="task-id">T004</div><div class="task-body"><div class="task-title">Create Demo Incident Cluster</div><div class="task-desc">Create 4 resolved incidents with <span class="mono">cmdb_ci</span> = demo Webex CI, rich work_notes and close_notes, no linked KB article. These feed Knowledge Demand Insights clustering so the gap surfaces in the Knowledge Center.</div></div></div>
+      <div class="task"><div class="task-id">T005</div><div class="task-body"><div class="task-title">Verify / Create KM Team Group</div><div class="task-desc">Confirm a KM Team assignment group exists representing Becki Love's team. Create if not present. This is both the fallback routing destination and the KM final review target.</div></div></div>
+    </div>
+
+    <div class="task-phase">
+      <div class="task-phase-header">Phase 3 — AI Skill Setup</div>
+      <div class="task"><div class="task-id">T008</div><div class="task-body"><div class="task-title">Verify Knowledge Demand Insights + Knowledge Center Entry Point</div><div class="task-desc">Confirm the "Top 5 potential gaps" tab is visible in Knowledge Center Insights after the demo incident cluster is created. Verify the Predictive Intelligence scheduled job has run and surfaced the Webex gap. Confirm the [Generate Article] action is accessible from gap suggestions — this is the hook point for the orchestration flow.</div></div></div>
+      <div class="task"><div class="task-id">T009</div><div class="task-body"><div class="task-title">Clone Knowledge Drafting Skill for Re-Draft Loop</div><div class="task-desc">Clone the OOB Knowledge Drafting Skill via Now Assist Skill Kit (NASK). Add feedback-aware prompt: passes original incident context + PO rejection work note as additional context. Name: "Knowledge Drafting Skill — Feedback Revision". This is the skill invoked in the re-draft loop, not the original.</div></div></div>
+    </div>
+
+    <div class="task-phase">
+      <div class="task-phase-header">Phase 4 — Orchestration Flow</div>
+      <div class="task"><div class="task-id">T010</div><div class="task-body"><div class="task-title">Build Main Orchestration Flow</div><div class="task-desc">Trigger: [Generate Article] from Knowledge Center gap suggestion. Actions: invoke OOB Knowledge Drafting Skill → create article in Draft state → add traceability work note (incident cluster INC numbers) → read incident.cmdb_ci.assignment_group → assign to ownership group → send N1 notification → call PO Review Subflow.</div></div></div>
+      <div class="task"><div class="task-id">T011</div><div class="task-body"><div class="task-title">Build PO Review Cycle Subflow</div><div class="task-desc">Wait for article state change. Branch: Approved → call KM Final Review Subflow. Rejected-rework → read PO work note → invoke cloned Drafting Skill (T009) → update article → reassign to PO → send N2 → loop. Rejected-not-needed → close. Loop guard at iteration 3 → send N5 to KM Team.</div></div></div>
+      <div class="task"><div class="task-id">T012</div><div class="task-body"><div class="task-title">Build KM Final Review Subflow</div><div class="task-desc">Reassign article to KM Team group → send N3 notification → wait for KM decision. Approved → OOB publish (workflow state transition to Published). Rejected → reassign to original ownership group + add KM work note → send N4 → re-enter PO Review Subflow.</div></div></div>
+    </div>
+
+    <div class="task-phase">
+      <div class="task-phase-header">Phase 5 — Notifications</div>
+      <div class="task"><div class="task-id">T013</div><div class="task-body"><div class="task-title">Create Notifications N1–N5</div><div class="task-desc">N1: PO team — AI draft ready. N2: PO team — revision ready (with iteration #). N3: KM team — PO-approved, ready for final review. N4: PO team — KM returned for revisions. N5: KM team — loop guard alert (article stuck). All link to article record and include relevant context.</div></div></div>
+    </div>
+
+    <div class="task-phase">
+      <div class="task-phase-header">Phase 6 — Demo Readiness</div>
+      <div class="task"><div class="task-id">T014</div><div class="task-body"><div class="task-title">End-to-End Flow Test</div><div class="task-desc">Trigger full flow from Knowledge Center gap suggestion. Validate: article created with correct custom fields, routed to correct ownership group, re-draft loop fires on PO rejection, KM routing fires on PO approval, article publishes on KM approval.</div></div></div>
+      <div class="task"><div class="task-id">T015</div><div class="task-body"><div class="task-title">Demo Readiness Check</div><div class="task-desc">Verify all 5 notifications send correctly. Confirm demo personas can access and action articles. Validate published article is searchable in KB and u_source_incident links back to demo incident. Confirm no empty screens in the demo clickthrough path.</div></div></div>
+    </div>
+  </div>
+
+  <!-- 9 -->
+  <div class="section" id="demo">
+    <div class="section-header"><div class="section-num">9</div><h2>Demo Scenario &amp; Clickthrough</h2></div>
+    <div class="alert alert-success">
+      <strong>Story:</strong> Becki Love's team has been getting pinged in Slack about recurring Webex VPN issues. She knows there's a gap. She opens the Knowledge Center and sees the gap already surfaced — 4 incidents, no article. She clicks [Generate Article]. Within seconds the article is drafted and routed to the right team. It cycles through one revision, gets PO approval, hits her desk for final review, and she publishes it — all without her team writing a single line.
+    </div>
+
+    <div class="scene">
+      <div class="scene-num">1</div>
+      <div class="scene-content">
+        <h4>Knowledge Center — Gaps Surfaced by Knowledge Demand Insights</h4>
+        <p>Becki opens the Knowledge Management workspace. The Insights tab shows <strong>"Top 5 potential gaps"</strong> — automatically identified by Knowledge Demand Insights from resolved incident clusters. One gap: <em>"Webex VPN Connectivity — 4 incidents resolved this month, no KB article."</em> She clicks <strong>[Generate Article]</strong>.</p>
+        <div class="nav-path">Knowledge Center → Insights tab → Top 5 potential gaps → [Generate Article]</div>
+      </div>
+    </div>
+
+    <div class="scene">
+      <div class="scene-num">2</div>
+      <div class="scene-content">
+        <h4>Agentic Flow Fires — Article Drafted in Seconds</h4>
+        <p>The click triggers the custom orchestration flow. The Orchestration Agent invokes the Drafting Agent (OOB Now Assist Knowledge Drafting Skill), which pulls from the 4 incident resolution notes, work notes, and short descriptions and generates a structured KB article. The agent reads <span class="mono">incident.cmdb_ci.assignment_group</span> for routing, assigns the article to DW_Accessibility_Support, and fires notification N1.</p>
+        <div class="nav-path">Flow Designer → Execution Log → Knowledge Gap Orchestration | Article created → Assigned to DW_Accessibility_Support</div>
+      </div>
+    </div>
+
+    <div class="scene">
+      <div class="scene-num">3</div>
+      <div class="scene-content">
+        <h4>AI-Drafted Article — In Draft State</h4>
+        <p>Open the kb_knowledge article. Show the AI-generated content (KCS structure: symptom, cause, resolution, workaround). Show the traceability work note: <em>"Generated from incident cluster: INC0001234, INC0001235…"</em>. Assignment group = DW_Accessibility_Support.</p>
+        <div class="nav-path">Knowledge → Articles → [AI-Drafted] Webex Connectivity — VPN Conflict Resolution</div>
+      </div>
+    </div>
+
+    <div class="scene">
+      <div class="scene-num">4</div>
+      <div class="scene-content">
+        <h4>Product Owner Team Notified — First Review</h4>
+        <p>Log in as <span class="mono">demo.po.user</span>. Show notification N1 received. Open article, review the draft. Reject with work note: <em>"Please add the specific VPN client versions that are affected and the known workaround for Cisco AnyConnect."</em></p>
+        <div class="nav-path">Email Inbox → N1: "AI-drafted KB article ready for review" → Article → Reject + Work Note</div>
+      </div>
+    </div>
+
+    <div class="scene">
+      <div class="scene-num">5</div>
+      <div class="scene-content">
+        <h4>Flow Re-Drafts with PO Feedback</h4>
+        <p>Flow detects rejection, reads PO work note, invokes the cloned Knowledge Drafting Skill with feedback context. Revised article includes VPN version table and Cisco AnyConnect workaround. PO re-notified (N2: "Revision 2 ready"). PO reviews and approves.</p>
+        <div class="nav-path">Revision 2 → VPN version table added → PO Approves → N3 fires to KM Team</div>
+      </div>
+    </div>
+
+    <div class="scene">
+      <div class="scene-num">6</div>
+      <div class="scene-content">
+        <h4>KM Team Final Review — Becki Publishes</h4>
+        <p>Log in as <span class="mono">demo.km.user</span> (Becki's team). Show notification N3 received. Open article, verify style guide compliance and KCS structure. Approve. OOB article lifecycle transitions article to Published state.</p>
+        <div class="nav-path">Knowledge Center → Review Queue → [Approve] → Article state: Published</div>
+      </div>
+    </div>
+
+    <div class="scene">
+      <div class="scene-num">7</div>
+      <div class="scene-content">
+        <h4>Published Article — Traceable to Source Incident</h4>
+        <p>Show the published article live in the KB. Open work notes — traceability stamp shows source incident cluster INC0001234–INC0001237. Search "Webex connectivity" in the portal — article surfaces immediately. Highlight: future Webex VPN incidents will be deflected by self-service.</p>
+        <div class="nav-path">KB → Search "Webex connectivity" → Article found | Work Notes: "Generated from incident cluster: INC0001234…"</div>
+      </div>
+    </div>
+  </div>
+
+
+  <div class="footer">
+    Generated by JARVIS v11 — ServiceNow Solution Architect &amp; Orchestrator<br>
+    American Express | Knowledge Gap Detection POC | demoalectriallwfzu138098 | 2026-03-19<br>
+    OOB claims verified against docs.servicenow.com (Zurich release)
+  </div>
+
+</div>
+</body>
+</html>
